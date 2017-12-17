@@ -1,6 +1,7 @@
 #define JOYSTICK_CONTROL 1
 #define HOVER_POINT 2
-#define FOLLOW_PERSON 3
+#define TRACK_FACE 3
+#define TRACK_MARKER 4
 
 #include "ros/ros.h"
 #include "std_msgs/String.h"
@@ -19,6 +20,13 @@ double global_roll, global_pitch, global_yaw, global_gaz;
 ros::Publisher  takeoff_pub;
 ros::Publisher  land_pub;
 ros::Publisher  toggleState_pub;
+struct errorStruct {
+    float x;
+    float y;
+    float z;
+    float yaw;
+    int valid; // if error information is worth considering
+} poseError;
 
 void chatterCallback(const std_msgs::String::ConstPtr& msg)
 {
@@ -30,6 +38,10 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
     double roll, pitch, yaw, gaz;
     //control_mode = JOYSTICK_CONTROL; // callback enter might be a manual command;
     
+    
+    // TODO
+    // CHECK BETTER, until then joystick cannot switch to autonomous control
+    /*
     if (joy_msg->buttons[0] == 1)
     {
         control_mode = HOVER_POINT;
@@ -37,9 +49,10 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
     }
     if (joy_msg->buttons[3] == 1)
     {
-        control_mode = FOLLOW_PERSON;
+        control_mode = TRACK_FACE;
         std::cout << "Joystick Callback: FOLLOW." << std::endl;
     }
+    */ 
     
     //ROS_INFO("I heard: [%s]", joy_msg->buttons);
     std::cout << "Joystick Callback: " << std::endl;
@@ -101,19 +114,76 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
 void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
 {
     //TODO
+    static int emptyFrames; // if last 10 (?) frames are empty, something is wrong: LAND or HOVER
+    
     if (!req.markers.empty())
     {
+        emptyFrames = 0;
         float x = req.markers[0].pose.pose.position.x;
         float y = req.markers[0].pose.pose.position.y;
         float z = req.markers[0].pose.pose.position.z;
         int id = req.markers[0].id;
         std::cout << "GOT MESSAGE FROM ALVAR!!!" << std::endl;
         std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
+        poseError.x = x;
+        poseError.y = y;
+        poseError.z = z;
+        // TODO, get orientation information
+        poseError.yaw = 0;
+        poseError.valid = 1;
+    }
+    else
+    {
+        emptyFrames++;
+        if (emptyFrames > 10)
+        {
+            // TODO: what happens after we mark the detection as faulty?
+            poseError.valid = 0;
+        }
     }
     
 }
 int main(int argc, char **argv)
 {
+    // init controller
+    if (argc == 2)
+    {
+
+        if (strcmp(argv[1], "joy") == 0)
+        {
+            control_mode = JOYSTICK_CONTROL;
+            std::cout << "Control mode: Joystick." << std::endl;
+        }
+        else
+            if (strcmp(argv[1], "marker") == 0)
+            {
+                control_mode = TRACK_MARKER;
+                std::cout << "Control mode: Marker." << std::endl;
+            }
+            else
+                if (strcmp(argv[1], "hover") == 0)
+                {
+                    control_mode = HOVER_POINT;
+                    std::cout << "Control mode: Hover." << std::endl;
+                }
+                else
+                    if (strcmp(argv[1], "face") == 0)
+                    {
+                        control_mode = TRACK_FACE;
+                        std::cout << "Control mode: Face tracker." << std::endl;
+                    }
+                    else
+                    {
+                        control_mode = JOYSTICK_CONTROL;
+                        std::cout << "No valid control input. Joystick selected by default." << std::endl;
+                    }
+    }
+    else
+    {
+        control_mode = JOYSTICK_CONTROL;
+        std::cout << "No selected control input. Joystick selected by default." << std::endl;
+    }
+    
     // init node
     ros::init(argc, argv, "visnav_controller");
     ros::NodeHandle n;
@@ -128,7 +198,7 @@ int main(int argc, char **argv)
     geometry_msgs::Twist cmdT;
     
     ros::Rate loop_rate(10);
-    control_mode = JOYSTICK_CONTROL;
+    
     
     // run node - send control commands
     std::cout << "NODE STARTED" << std::endl;
