@@ -8,6 +8,8 @@
 #include "std_msgs/Empty.h"
 #include "math.h"
 #include "geometry_msgs/Twist.h"
+#include "tf/transform_datatypes.h"
+#include "ar_track_alvar_msgs/AlvarMarkers.h"
 
 #include <sstream>
 
@@ -96,6 +98,20 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
     std::cout << "-------------------------------------" << std::endl;
 }
 
+void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
+{
+    //TODO
+    if (!req.markers.empty())
+    {
+        float x = req.markers[0].pose.pose.position.x;
+        float y = req.markers[0].pose.pose.position.y;
+        float z = req.markers[0].pose.pose.position.z;
+        int id = req.markers[0].id;
+        std::cout << "GOT MESSAGE FROM ALVAR!!!" << std::endl;
+        std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
+    }
+    
+}
 int main(int argc, char **argv)
 {
     // init node
@@ -105,6 +121,7 @@ int main(int argc, char **argv)
     ros::Subscriber sub = n.subscribe("chatter", 1000, chatterCallback);
     ros::Subscriber joy_sub = n.subscribe("joy", 1000, joystickCallback);
     ros::Publisher  vel_pub = n.advertise<geometry_msgs::Twist>(n.resolveName("cmd_vel"),1);
+    ros::Subscriber alvar_sub = n.subscribe("ar_pose_marker", 1000, markerPoseCallback);
     takeoff_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/takeoff"),1);
     land_pub    = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/land"),1);
     toggleState_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/reset"),1);
@@ -114,6 +131,7 @@ int main(int argc, char **argv)
     control_mode = JOYSTICK_CONTROL;
     
     // run node - send control commands
+    std::cout << "NODE STARTED" << std::endl;
     while (ros::ok())
     {
         // Init for safety
