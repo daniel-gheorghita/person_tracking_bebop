@@ -21,12 +21,12 @@ ros::Publisher  takeoff_pub;
 ros::Publisher  land_pub;
 ros::Publisher  toggleState_pub;
 struct errorStruct {
-    float x;
-    float y;
-    float z;
-    float yaw;
+    double x;
+    double y;
+    double z;
+    double yaw;
     int valid; // if error information is worth considering
-} poseError;
+} poseError, d_poseError, last_poseError, i_poseError;
 
 void chatterCallback(const std_msgs::String::ConstPtr& msg)
 {
@@ -119,18 +119,35 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
     if (!req.markers.empty())
     {
         emptyFrames = 0;
-        float x = req.markers[0].pose.pose.position.x;
-        float y = req.markers[0].pose.pose.position.y;
-        float z = req.markers[0].pose.pose.position.z;
+        double x = req.markers[0].pose.pose.position.x;
+        double y = req.markers[0].pose.pose.position.y;
+        double z = req.markers[0].pose.pose.position.z;
+        double qx = req.markers[0].pose.pose.orientation.x;
+        double qy = req.markers[0].pose.pose.orientation.y;
+        double qz = req.markers[0].pose.pose.orientation.z;
+        double qw = req.markers[0].pose.pose.orientation.w;
         int id = req.markers[0].id;
         std::cout << "GOT MESSAGE FROM ALVAR!!!" << std::endl;
-        std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
+        //std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
         poseError.x = x;
         poseError.y = y;
         poseError.z = z;
         // TODO, get orientation information
-        poseError.yaw = 0;
+        
+        double siny = +2.0 * (qw * qz + qx * qy);
+        double cosy = +1.0 - 2.0 * (qy * qy + qz * qz);  
+        double yaw = atan2(siny, cosy);
+        
+        // CLIP yaw
+        if (yaw > 3.1416 / 2) 
+            yaw -= 3.1416;
+        if (yaw < -3.1416 / 2)
+            yaw += 3.1416;
+            
+        // assign yaw error
+        poseError.yaw = yaw;
         poseError.valid = 1;
+        std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << "; Yaw: " << yaw << std::endl << std::endl;
     }
     else
     {
@@ -175,13 +192,18 @@ int main(int argc, char **argv)
                     else
                     {
                         control_mode = JOYSTICK_CONTROL;
-                        std::cout << "No valid control input. Joystick selected by default." << std::endl;
+                        std::cout << "No valid control input. Joystick selected by default. " << std::endl;
+                        std::cout << "You can restart the node in the following modes: " << std::endl;
+                        std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
                     }
     }
     else
     {
         control_mode = JOYSTICK_CONTROL;
         std::cout << "No selected control input. Joystick selected by default." << std::endl;
+        std::cout << "You can restart the node in the following modes: " << std::endl;
+        std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
+                    
     }
     
     // init node
@@ -209,7 +231,23 @@ int main(int argc, char **argv)
         global_pitch = 0;
         global_gaz = 0;
         global_roll = 0;
-
+        
+        // Controller
+        /*
+         * computedCmd.roll = (control_force(0) * sin(yaw) - control_force(1) * cos(yaw)) / (m * g);
+        computedCmd.pitch = (control_force(0) * cos(yaw) + control_force(1) * sin(yaw)) / (m * g);
+        computedCmd.yaw_rate = 0.1;
+        computedCmd.thrust.x = 0;
+        computedCmd.thrust.y = 0;
+        computedCmd.thrust.z = control_force(2) + m * g;
+         */
+        double Kp = 0.01;
+        double Ki = 0;
+        double Kd = 0;
+        global_yaw = Kp * poseError.yaw;
+        global_pitch = Kp * (poseError.x * cos(poseError.yaw) + poseError.y * sin(poseError.yaw));
+        global_roll = Kp * (poseError.x * sin(poseError.yaw) - poseError.y * cos(poseError.yaw)); 
+        global_gaz = Kp * poseError.z;
         // Prepare command
         cmdT.angular.z = -global_yaw;
         cmdT.linear.z = global_gaz;
