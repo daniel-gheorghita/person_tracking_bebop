@@ -1,0 +1,3 @@
+# additional file from CLion
+cmake-build-debug/*
+.idea/*

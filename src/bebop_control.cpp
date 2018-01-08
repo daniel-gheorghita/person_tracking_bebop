@@ -38,7 +38,6 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
     double roll, pitch, yaw, gaz;
     //control_mode = JOYSTICK_CONTROL; // callback enter might be a manual command;
     
-    
     // TODO
     // CHECK BETTER, until then joystick cannot switch to autonomous control
     /*
@@ -66,14 +65,13 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
     {
         std::cout << "Joystick Buttons " << i << ": " << joy_msg->buttons[i] << std::endl;
     }
-      
-      
-      // button[4] = take off / land
-      // button[5] = reset
-      // axis[0] = 
-      // axis[1] = 
-      // axis[2] = 
-      // axis[3] = 
+
+    // button[4] = take off / land
+    // button[5] = reset
+    // axis[0] =
+    // axis[1] =
+    // axis[2] =
+    // axis[3] =
     
     yaw = -joy_msg->axes[2];
     gaz = joy_msg->axes[3];
@@ -128,7 +126,7 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
         double qw = req.markers[0].pose.pose.orientation.w;
         int id = req.markers[0].id;
         std::cout << "GOT MESSAGE FROM ALVAR!!!" << std::endl;
-        //std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
+
         poseError.x = x;
         poseError.y = y;
         poseError.z = z;
@@ -165,37 +163,34 @@ int main(int argc, char **argv)
     // init controller
     if (argc == 2)
     {
-
         if (strcmp(argv[1], "joy") == 0)
         {
             control_mode = JOYSTICK_CONTROL;
             std::cout << "Control mode: Joystick." << std::endl;
         }
+        else if (strcmp(argv[1], "marker") == 0)
+        {
+            control_mode = TRACK_MARKER;
+            std::cout << "Control mode: Marker." << std::endl;
+        }
+        else if (strcmp(argv[1], "hover") == 0)
+        {
+            control_mode = HOVER_POINT;
+            std::cout << "Control mode: Hover." << std::endl;
+        }
+        else if (strcmp(argv[1], "face") == 0)
+        {
+            control_mode = TRACK_FACE;
+            std::cout << "Control mode: Face tracker." << std::endl;
+        }
         else
-            if (strcmp(argv[1], "marker") == 0)
-            {
-                control_mode = TRACK_MARKER;
-                std::cout << "Control mode: Marker." << std::endl;
-            }
-            else
-                if (strcmp(argv[1], "hover") == 0)
-                {
-                    control_mode = HOVER_POINT;
-                    std::cout << "Control mode: Hover." << std::endl;
-                }
-                else
-                    if (strcmp(argv[1], "face") == 0)
-                    {
-                        control_mode = TRACK_FACE;
-                        std::cout << "Control mode: Face tracker." << std::endl;
-                    }
-                    else
-                    {
-                        control_mode = JOYSTICK_CONTROL;
-                        std::cout << "No valid control input. Joystick selected by default. " << std::endl;
-                        std::cout << "You can restart the node in the following modes: " << std::endl;
-                        std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
-                    }
+        {
+            control_mode = JOYSTICK_CONTROL;
+            std::cout << "No valid control input. Joystick selected by default. " << std::endl;
+            std::cout << "You can restart the node in the following modes: " << std::endl;
+            std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
+            return 0;
+        }
     }
     else
     {
@@ -203,7 +198,7 @@ int main(int argc, char **argv)
         std::cout << "No selected control input. Joystick selected by default." << std::endl;
         std::cout << "You can restart the node in the following modes: " << std::endl;
         std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
-                    
+        return 0;
     }
     
     // init node
@@ -221,7 +216,6 @@ int main(int argc, char **argv)
     
     ros::Rate loop_rate(10);
     
-    
     // run node - send control commands
     std::cout << "NODE STARTED" << std::endl;
     while (ros::ok())
@@ -234,13 +228,14 @@ int main(int argc, char **argv)
         
         // Controller
         /*
-         * computedCmd.roll = (control_force(0) * sin(yaw) - control_force(1) * cos(yaw)) / (m * g);
+        computedCmd.roll = (control_force(0) * sin(yaw) - control_force(1) * cos(yaw)) / (m * g);
         computedCmd.pitch = (control_force(0) * cos(yaw) + control_force(1) * sin(yaw)) / (m * g);
         computedCmd.yaw_rate = 0.1;
         computedCmd.thrust.x = 0;
         computedCmd.thrust.y = 0;
         computedCmd.thrust.z = control_force(2) + m * g;
          */
+
         double Kp = 0.01;
         double Ki = 0;
         double Kd = 0;
@@ -248,6 +243,7 @@ int main(int argc, char **argv)
         global_pitch = Kp * (poseError.x * cos(poseError.yaw) + poseError.y * sin(poseError.yaw));
         global_roll = Kp * (poseError.x * sin(poseError.yaw) - poseError.y * cos(poseError.yaw)); 
         global_gaz = Kp * poseError.z;
+
         // Prepare command
         cmdT.angular.z = -global_yaw;
         cmdT.linear.z = global_gaz;
@@ -261,9 +257,7 @@ int main(int argc, char **argv)
         ros::spinOnce();
 
         loop_rate.sleep();
-    
     }
 
-
-  return 0;
+    return 0;
 }
