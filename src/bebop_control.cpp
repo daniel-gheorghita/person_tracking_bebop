@@ -109,9 +109,16 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
     std::cout << "-------------------------------------" << std::endl;
 }
 
+// TODO
+// predictedPose callback : ardrone/predictedPose
+// if target point and predictedPose (state) is far, send cmd_vel
+// DroneController update
+
 void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
 {
-    //TODO
+    // TODO
+    // DroneController setTarget
+
     static int emptyFrames; // if last 10 (?) frames are empty, something is wrong: LAND or HOVER
     
     if (!req.markers.empty())
