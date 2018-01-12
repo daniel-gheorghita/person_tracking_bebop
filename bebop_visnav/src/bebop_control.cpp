@@ -9,24 +9,28 @@
 #include "std_msgs/Empty.h"
 #include "math.h"
 #include "geometry_msgs/Twist.h"
+#include "geometry_msgs/PoseWithCovariance.h"
 #include "tf/transform_datatypes.h"
 #include "ar_track_alvar_msgs/AlvarMarkers.h"
+#include "nav_msgs/Odometry.h"
 
 #include <sstream>
+ros::Publisher  vel_pub;
 
 int control_mode = 0; 
 int useHovering = 1;
 double global_roll, global_pitch, global_yaw, global_gaz;
+int sent_TakeOff = 0;
 ros::Publisher  takeoff_pub;
 ros::Publisher  land_pub;
 ros::Publisher  toggleState_pub;
-struct errorStruct {
+struct poseStruct {
     double x;
     double y;
     double z;
     double yaw;
     int valid; // if error information is worth considering
-} poseError, d_poseError, last_poseError, i_poseError;
+} poseError, d_poseError, last_poseError, i_poseError, dronePose, desiredPose;
 
 void chatterCallback(const std_msgs::String::ConstPtr& msg)
 {
@@ -55,16 +59,16 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
     */ 
     
     //ROS_INFO("I heard: [%s]", joy_msg->buttons);
-    std::cout << "Joystick Callback: " << std::endl;
+    //std::cout << "Joystick Callback: " << std::endl;
       
     for (int i = 0; i < 4; i++)
     {
-        std::cout << "Joystick Axes " << i << ": " << joy_msg->axes[i] << std::endl;
+      //  std::cout << "Joystick Axes " << i << ": " << joy_msg->axes[i] << std::endl;
     }
       
     for (int i = 0; i < 17; i++)
     {
-        std::cout << "Joystick Buttons " << i << ": " << joy_msg->buttons[i] << std::endl;
+      //  std::cout << "Joystick Buttons " << i << ": " << joy_msg->buttons[i] << std::endl;
     }
       
       
@@ -87,28 +91,65 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
         global_yaw = yaw;
         global_pitch = pitch;
         global_gaz = gaz;
+        geometry_msgs::Twist cmdT;
+
+        // Prepare command
+        cmdT.angular.z = -global_yaw;
+        cmdT.linear.z = global_gaz;
+        cmdT.linear.x = -global_pitch;
+        cmdT.linear.y = -global_roll;
+        cmdT.angular.x = cmdT.angular.y = useHovering ? 0 : 1;
+    
+        // Send command
+        vel_pub.publish(cmdT);
+
+        
     }
     
-    if (joy_msg->buttons[4] == 1)
+    if (joy_msg->buttons[10] == 1)
     {
         // send take off message
         takeoff_pub.publish(std_msgs::Empty());
-        std::cout << "Joystick Callback: TAKE OFF." << std::endl;
+        //std::cout << "Joystick Callback: TAKE OFF." << std::endl;
     }
     else
     {
         // send land message
         land_pub.publish(std_msgs::Empty());
-        std::cout << "Joystick Callback: LAND." << std::endl;
+        //std::cout << "Joystick Callback: LAND." << std::endl;
     }
     
-    if (joy_msg->buttons[5] == 1)
+    if (joy_msg->buttons[11] == 1)
     {
         // send take off message
         toggleState_pub.publish(std_msgs::Empty());
         std::cout << "Joystick Callback: RESET." << std::endl;
     }
-    std::cout << "-------------------------------------" << std::endl;
+    //std::cout << "-------------------------------------" << std::endl;
+}
+
+void odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
+{
+    
+    std::cout << "Odometry message:" << std::endl;
+    std::cout << "Position -> x: " << msg->pose.pose.position.x;
+    std::cout << " y: " << msg->pose.pose.position.y;
+    std::cout << " z: " << msg->pose.pose.position.z;
+    std::cout << std::endl << " ---------------------  " << std::endl;
+    dronePose.x = msg->pose.pose.position.x;
+    dronePose.y = msg->pose.pose.position.y;
+    dronePose.z = msg->pose.pose.position.z;
+    
+    // TODO 
+    // orientation
+
+    
+    /* 
+        ROS_INFO("Seq: [%d]", msg->header.seq);
+  ROS_INFO("Position-> x: [%f], y: [%f], z: [%f]", msg->pose.pose.position.x,msg->pose.pose.position.y, msg->pose.pose.position.z);
+  ROS_INFO("Orientation-> x: [%f], y: [%f], z: [%f], w: [%f]", msg->pose.pose.orientation.x, msg->pose.pose.orientation.y, msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
+  ROS_INFO("Vel-> Linear: [%f], Angular: [%f]", msg->twist.twist.linear.x,msg->twist.twist.angular.z);
+   */
 }
 
 void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
@@ -127,11 +168,26 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
         double qz = req.markers[0].pose.pose.orientation.z;
         double qw = req.markers[0].pose.pose.orientation.w;
         int id = req.markers[0].id;
-        std::cout << "GOT MESSAGE FROM ALVAR!!!" << std::endl;
+        //std::cout << "GOT MESSAGE FROM ALVAR!!!" << std::endl;
         //std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
-        poseError.x = x;
-        poseError.y = y;
-        poseError.z = z;
+        
+        
+        // store last error
+        last_poseError.x = poseError.x;
+        last_poseError.y = poseError.y;
+        last_poseError.z = poseError.z;
+        last_poseError.yaw = poseError.yaw;
+        
+        // new desired pose
+        desiredPose.x = x;
+        desiredPose.y = y;
+        desiredPose.z = z;
+        
+        // new error
+        poseError.x = x - dronePose.x;
+        poseError.y = y - dronePose.y;
+        poseError.z = z - dronePose.z;
+        
         // TODO, get orientation information
         
         double siny = +2.0 * (qw * qz + qx * qy);
@@ -147,7 +203,49 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
         // assign yaw error
         poseError.yaw = yaw;
         poseError.valid = 1;
-        std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << "; Yaw: " << yaw << std::endl << std::endl;
+        std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << "; Yaw: " << yaw << std::endl;
+        
+        if (control_mode == TRACK_MARKER)
+        {
+            std::cout << "Tracking marker." << std::endl;
+            //global_roll = roll;
+            //global_yaw = yaw;
+            //global_pitch = pitch;
+            //global_gaz = gaz;
+            geometry_msgs::Twist cmdT;
+
+            // PD controller params
+            double Kp = 0.5; 
+            double Kd = 0.5;
+            
+            // apply dead-zone
+            //poseError.z = (abs(poseError.z) < 0.02) ? 0 : poseError.z;
+            poseError.x = (abs(poseError.x) < 0.02) ? 0 : poseError.x;
+            //poseError.y = (abs(poseError.y) < 0.02) ? 0 : poseError.y;
+            
+            // Prepare command (PD controller)
+            cmdT.angular.z = 0;
+            cmdT.linear.z = poseError.z * Kp + (poseError.z - last_poseError.z) * Kd;
+            cmdT.linear.x = (poseError.x - 1) * Kp + (poseError.x - last_poseError.x) * Kd;
+            cmdT.linear.x /= 2;
+            cmdT.linear.y = poseError.y * Kp + (poseError.y - last_poseError.y) * Kd;
+            cmdT.angular.x = cmdT.angular.y = useHovering ? 0 : 1;
+            
+            // Clip command
+            cmdT.linear.z = (cmdT.linear.z > 1) ? 1 : cmdT.linear.z;
+            cmdT.linear.z = (cmdT.linear.z < -1) ? -1 : cmdT.linear.z;
+            cmdT.linear.x = (cmdT.linear.x > 1) ? 1 : cmdT.linear.x;
+            cmdT.linear.x = (cmdT.linear.x < -1) ? -1 : cmdT.linear.x;
+            cmdT.linear.y = (cmdT.linear.y > 1) ? 1 : cmdT.linear.y;
+            cmdT.linear.y = (cmdT.linear.y < -1) ? -1 : cmdT.linear.y;
+
+
+
+            std::cout << "Command -> x:  "<<cmdT.linear.x << " y: " << cmdT.linear.y << " z: " << cmdT.linear.z << std::endl;    
+            std::cout << " ------------------------------- "<< std::endl << std::endl;   
+            // Send command
+            vel_pub.publish(cmdT);
+        }
     }
     else
     {
@@ -211,9 +309,10 @@ int main(int argc, char **argv)
     ros::NodeHandle n;
     ros::Publisher chatter_pub = n.advertise<std_msgs::String>("chatter", 1000);
     ros::Subscriber sub = n.subscribe("chatter", 1000, chatterCallback);
+    ros::Subscriber odom_sub = n.subscribe("ardrone/odom", 1000, odomCallback);
     ros::Subscriber joy_sub = n.subscribe("joy", 1000, joystickCallback);
-    ros::Publisher  vel_pub = n.advertise<geometry_msgs::Twist>(n.resolveName("cmd_vel"),1);
     ros::Subscriber alvar_sub = n.subscribe("ar_pose_marker", 1000, markerPoseCallback);
+    vel_pub = n.advertise<geometry_msgs::Twist>(n.resolveName("cmd_vel"),1);
     takeoff_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/takeoff"),1);
     land_pub    = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/land"),1);
     toggleState_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/reset"),1);
@@ -227,9 +326,9 @@ int main(int argc, char **argv)
     while (ros::ok())
     {
         // Init for safety
-        global_yaw = 0;
-        global_pitch = 0;
-        global_gaz = 0;
+      //  global_yaw = 0;
+      //  global_pitch = 0;
+      //  global_gaz = 0;
         global_roll = 0;
         
         // Controller
@@ -241,6 +340,7 @@ int main(int argc, char **argv)
         computedCmd.thrust.y = 0;
         computedCmd.thrust.z = control_force(2) + m * g;
          */
+         /*
         double Kp = 0.01;
         double Ki = 0;
         double Kd = 0;
@@ -254,9 +354,9 @@ int main(int argc, char **argv)
         cmdT.linear.x = -global_pitch;
         cmdT.linear.y = -global_roll;
         cmdT.angular.x = cmdT.angular.y = useHovering ? 0 : 1;
-        
+        */
         // Send command
-        vel_pub.publish(cmdT);
+        //vel_pub.publish(cmdT);
 
         ros::spinOnce();
 
