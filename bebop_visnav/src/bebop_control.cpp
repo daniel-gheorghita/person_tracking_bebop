@@ -13,10 +13,13 @@
 #include "tf/transform_datatypes.h"
 #include "ar_track_alvar_msgs/AlvarMarkers.h"
 #include "nav_msgs/Odometry.h"
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 
 #include <sstream>
 ros::Publisher  vel_pub;
 
+geometry_msgs::Twist cmdT;
 int control_mode = 0; 
 int useHovering = 1;
 double yawMean, yawSum;
@@ -39,25 +42,91 @@ void chatterCallback(const std_msgs::String::ConstPtr& msg)
   //ROS_INFO("I heard: [%s]", msg->data.c_str());
 }
 
+void sendCmd_byError(poseStruct errorPose)
+{
+    // PD controller params
+    double Kp = 0.4; 
+    double Kd = 0.2;
+    static poseStruct last_errorPose;
+        
+    // Prepare command (PD controller)
+    cmdT.angular.z = Kp * errorPose.yaw + (errorPose.yaw - last_errorPose.yaw) * Kd;
+    cmdT.linear.z = errorPose.z * Kp + (errorPose.z - last_errorPose.z) * Kd;
+    //cmdT.linear.z = 0; // testing
+    cmdT.linear.x = (errorPose.x) * Kp / 2 + (errorPose.x - last_errorPose.x) * Kd;
+//    cmdT.linear.x = 0; // testing
+    cmdT.linear.y = errorPose.y * Kp / 2 + (errorPose.y - last_errorPose.y) * Kd;
+  //  cmdT.linear.y = 0; // testing
+    //cmdT.linear.y = 0;
+    cmdT.angular.x = cmdT.angular.y = useHovering ? 0 : 1;
+                
+    // Clip command
+    double limit = 0.2;
+    cmdT.linear.z = (cmdT.linear.z > limit) ? limit : cmdT.linear.z;
+    cmdT.linear.z = (cmdT.linear.z < -limit) ? -limit : cmdT.linear.z;
+    cmdT.linear.x = (cmdT.linear.x > limit) ? limit : cmdT.linear.x;
+    cmdT.linear.x = (cmdT.linear.x < -limit) ? -limit : cmdT.linear.x;
+    cmdT.linear.y = (cmdT.linear.y > limit) ? limit : cmdT.linear.y;
+    cmdT.linear.y = (cmdT.linear.y < -limit) ? -limit : cmdT.linear.y;
+    cmdT.angular.z = (cmdT.angular.z > limit) ? limit : cmdT.angular.z;
+    cmdT.angular.z = (cmdT.angular.z < -limit) ? -limit : cmdT.angular.z;
+                
+    vel_pub.publish(cmdT);
+    last_errorPose = errorPose;
+//                
+//    cmdT.linear.z = 0; // clearing
+//    cmdT.linear.x = 0; // clearing
+//    cmdT.linear.y = 0; // clearing
+//    cmdT.angular.z = 0; // clearing
+}
+
+void sendCmd(poseStruct desiredPose)
+{
+    // store last error
+    last_poseError.x = poseError.x;
+    last_poseError.y = poseError.y;
+    last_poseError.z = poseError.z;
+    last_poseError.yaw = poseError.yaw;
+                
+    // new error
+    poseError.x = desiredPose.x - dronePose.x;
+    poseError.y = desiredPose.y - dronePose.y;
+    poseError.z = desiredPose.z - dronePose.z;
+    poseError.yaw = desiredPose.yaw - dronePose.yaw;
+                
+    // PD controller params
+    double Kp = 0.5; 
+    double Kd = 0;
+                
+    // Prepare command (PD controller)
+    cmdT.angular.z = 0;
+    cmdT.linear.z = poseError.z * Kp + (poseError.z - last_poseError.z) * Kd;
+    cmdT.linear.x = (poseError.x) * Kp + (poseError.x - last_poseError.x) * Kd;
+    cmdT.linear.x = 0;
+    cmdT.linear.y = poseError.y * Kp + (poseError.y - last_poseError.y) * Kd;
+    //cmdT.linear.y = 0;
+    cmdT.angular.x = cmdT.angular.y = useHovering ? 0 : 1;
+                
+    // Clip command
+    double limit = 0.1;
+    cmdT.linear.z = (cmdT.linear.z > limit) ? limit : cmdT.linear.z;
+    cmdT.linear.z = (cmdT.linear.z < -limit) ? -limit : cmdT.linear.z;
+    cmdT.linear.x = (cmdT.linear.x > limit) ? limit : cmdT.linear.x;
+    cmdT.linear.x = (cmdT.linear.x < -limit) ? -limit : cmdT.linear.x;
+    cmdT.linear.y = (cmdT.linear.y > limit) ? limit : cmdT.linear.y;
+    cmdT.linear.y = (cmdT.linear.y < -limit) ? -limit : cmdT.linear.y;
+                
+    vel_pub.publish(cmdT);
+}
+
 void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
 {
     double roll, pitch, yaw, gaz;
-    //control_mode = JOYSTICK_CONTROL; // callback enter might be a manual command;
-    
-    
-    //std::cout << "Joystick Callback: " << std::endl;
       
     for (int i = 0; i < 4; i++)
-    {
       //  std::cout << "Joystick Axes " << i << ": " << joy_msg->axes[i] << std::endl;
-    }
-      
     for (int i = 0; i < 17; i++)
-    {
       //  std::cout << "Joystick Buttons " << i << ": " << joy_msg->buttons[i] << std::endl;
-    }
-      
-      
     
     yaw = -joy_msg->axes[2];
     gaz = joy_msg->axes[3];
@@ -71,26 +140,22 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
         global_yaw = yaw;
         global_pitch = pitch;
         global_gaz = gaz;
-        geometry_msgs::Twist cmdT;
-
-
-        
     }
     
-    if (joy_msg->buttons[4] == 1)
+    if (joy_msg->buttons[4] > 0.5)
     {
         // send take off message
         takeoff_pub.publish(std_msgs::Empty());
-        //std::cout << "Joystick Callback: TAKE OFF." << std::endl;
+        std::cout << "Joystick Callback: TAKE OFF." << std::endl;
     }
     else
     {
         // send land message
         land_pub.publish(std_msgs::Empty());
-        //std::cout << "Joystick Callback: LAND." << std::endl;
+        std::cout << "Joystick Callback: LAND." << std::endl;
     }
     
-    if (joy_msg->buttons[11] == 1)
+    if (joy_msg->buttons[5] == 1)
     {
         // send take off message
         toggleState_pub.publish(std_msgs::Empty());
@@ -101,6 +166,8 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
 
 void odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
 {
+    if (control_mode != HOVER_POINT) return;
+
     static int yawIdx;
 
     dronePose.x = msg->pose.pose.position.x;
@@ -118,93 +185,75 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
     double siny = +2.0 * (qw * qz + qx * qy);
     double cosy = +1.0 - 2.0 * (qy * qy + qz * qz);  
     dronePose.yaw = atan2(siny, cosy);
-    
-    if (yawIdx < yawCount)
-    {
-        yawSum += dronePose.yaw;
-        yawIdx++;
-        std::cout << std::endl << "----- YAW CALIBRATION NOT READY !!!! -----" << std::endl << std::endl;
-    }
-    
-    else
-    {
-        yawMean = yawSum / yawIdx;
-        std::cout <<  "  raw drone yaw: " << dronePose.yaw << std::endl;
-        dronePose.yaw -= yawMean;
-        
-        // CLIP yaw
-            if (dronePose.yaw > 3.1416 / 2) 
-                dronePose.yaw -= 3.1416;
-            if (dronePose.yaw < -3.1416 / 2)
-                dronePose.yaw += 3.1416;
-        
-        
-        // represent the desirePose in the drone frame
-        local_desiredPose.y = desiredPose.x * sin(dronePose.yaw) + desiredPose.y * cos(dronePose.yaw);
-        local_desiredPose.x = desiredPose.x * cos(dronePose.yaw) - desiredPose.y * sin(dronePose.yaw);
-        local_desiredPose.z = desiredPose.z;
-    }
-    
-    
-    
-    /* 
-        ROS_INFO("Seq: [%d]", msg->header.seq);
-  ROS_INFO("Position-> x: [%f], y: [%f], z: [%f]", msg->pose.pose.position.x,msg->pose.pose.position.y, msg->pose.pose.position.z);
-  ROS_INFO("Orientation-> x: [%f], y: [%f], z: [%f], w: [%f]", msg->pose.pose.orientation.x, msg->pose.pose.orientation.y, msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
-  ROS_INFO("Vel-> Linear: [%f], Angular: [%f]", msg->twist.twist.linear.x,msg->twist.twist.angular.z);
-   */
+
+    local_desiredPose.y = -desiredPose.x * sin(dronePose.yaw) + desiredPose.y * cos(dronePose.yaw);
+    local_desiredPose.x = desiredPose.x * cos(dronePose.yaw) + desiredPose.y * sin(dronePose.yaw);
+    local_desiredPose.z = desiredPose.z;
+    sendCmd(local_desiredPose);    
 }
 
 void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
 {
+    if (control_mode != TRACK_MARKER) return;
+    double yaw = 0, x = 0, y = 0, z = 0;
+    int countMarkers = 0;
     //TODO
     static int emptyFrames; // if last 10 (?) frames are empty, something is wrong: LAND or HOVER
     
     if (!req.markers.empty())
     {
         emptyFrames = 0;
-        double x = req.markers[0].pose.pose.position.x;
-        double y = req.markers[0].pose.pose.position.y;
-        double z = req.markers[0].pose.pose.position.z;
-        double qx = req.markers[0].pose.pose.orientation.x;
-        double qy = req.markers[0].pose.pose.orientation.y;
-        double qz = req.markers[0].pose.pose.orientation.z;
-        double qw = req.markers[0].pose.pose.orientation.w;
-        int id = req.markers[0].id;
-        //std::cout << "GOT MESSAGE FROM ALVAR!!!" << std::endl;
-        //std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
+        
+        
+        
+        
+        for (int i = 0; i < req.markers.size(); i++) {
+            int id = req.markers[i].id;
+            
+            if (id > 8)    continue;
+            
+            countMarkers++;
+             x += req.markers[i].pose.pose.position.x;
+             y += req.markers[i].pose.pose.position.y;
+             z += req.markers[i].pose.pose.position.z;
+            double qx = req.markers[i].pose.pose.orientation.x;
+            double qy = req.markers[i].pose.pose.orientation.y;
+            double qz = req.markers[i].pose.pose.orientation.z;
+            double qw = req.markers[i].pose.pose.orientation.w;
+            
+            
+            //std::cout << "GOT MESSAGE FROM ALVAR!!!" << std::endl;
+        std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
         
         // TODO, get orientation information
-            
-            double siny = +2.0 * (qw * qz + qx * qy);
-            double cosy = +1.0 - 2.0 * (qy * qy + qz * qz);  
-            double yaw = atan2(siny, cosy);
-            
-            // CLIP yaw
-            if (yaw > 3.1416 / 2) 
-                yaw -= 3.1416;
-            if (yaw < -3.1416 / 2)
-                yaw += 3.1416;
+            Eigen::Quaterniond q(qw,qx,qy,qz);
+            Eigen::Vector3d marker_zAxis(0,0,1), drone_xAxis(1,0,0);
+            Eigen::Matrix3d rotation; 
+            Eigen::Vector3d marker_zAxis_local_frame;
+            rotation = q.toRotationMatrix();
+            marker_zAxis_local_frame = rotation * marker_zAxis;
         
+            marker_zAxis_local_frame[2] = 0;
+            double cosineValue;
+            double normValue = marker_zAxis_local_frame.norm();
+            cosineValue = marker_zAxis_local_frame.dot(drone_xAxis) / normValue;
+            
+            yaw += acos(cosineValue) * marker_zAxis_local_frame[0] * marker_zAxis_local_frame[1];
+            
+        }
         
- //       std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << "; Yaw: " << yaw << std::endl;
-        
-        if (control_mode == TRACK_MARKER)
-        {
-      //      std::cout << "Tracking marker." << std::endl;
-            
-            
-            
-            
-            // store last desired pose
+             // store last desired pose
             last_desiredPose.x = desiredPose.x; 
             last_desiredPose.y = desiredPose.y;
             last_desiredPose.z = desiredPose.z;
-            
+       
             // update desired pose
-            desiredPose.x = dronePose.x + x - 1; // 1m in front of the marker
-            desiredPose.y = dronePose.y + y;
-            desiredPose.z = dronePose.z + z;
+            desiredPose.yaw = yaw / countMarkers ;
+            desiredPose.x = x / countMarkers - 1;
+            desiredPose.y = y / countMarkers;
+            desiredPose.z = z / countMarkers;
+
+
             
             // discard large variations
             if (abs(desiredPose.x - last_desiredPose.x) > 2 || abs(desiredPose.y - last_desiredPose.y) > 2 || abs(desiredPose.z - last_desiredPose.z) > 2)
@@ -216,8 +265,9 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
             // assign yaw error
             //poseError.yaw = yaw;
             //poseError.valid = 1;
-       
-        }
+            local_desiredPose = desiredPose;
+            
+           sendCmd_byError(desiredPose); 
     }
     else
     {
@@ -278,43 +328,35 @@ int main(int argc, char **argv)
         std::cout << "No selected control input. Joystick selected by default." << std::endl;
         std::cout << "You can restart the node in the following modes: " << std::endl;
         std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
-                    
     }
     
     // init node
     ros::init(argc, argv, "visnav_controller");
     ros::NodeHandle n;
+
     ros::Publisher chatter_pub = n.advertise<std_msgs::String>("chatter", 1000);
+
     ros::Subscriber sub = n.subscribe("chatter", 1000, chatterCallback);
     ros::Subscriber odom_sub = n.subscribe("ardrone/odom", 1000, odomCallback);
     ros::Subscriber joy_sub = n.subscribe("joy", 1000, joystickCallback);
     ros::Subscriber alvar_sub = n.subscribe("ar_pose_marker", 1000, markerPoseCallback);
+
     vel_pub = n.advertise<geometry_msgs::Twist>(n.resolveName("cmd_vel"),1);
     takeoff_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/takeoff"),1);
     land_pub    = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/land"),1);
     toggleState_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/reset"),1);
-    geometry_msgs::Twist cmdT;
+
     
     ros::Rate loop_rate(10);
-    
-    
+        
     // run node - send control commands
     std::cout << "NODE STARTED" << std::endl;
     while (ros::ok())
     {
-        
         // clear console
         std::cout << "\x1B[2J\x1B[H";
  
-        // Empty command
-        cmdT.angular.z = 0;
-        cmdT.linear.z = 0;
-        cmdT.linear.x = 0;
-        cmdT.linear.y = 0;
-        cmdT.angular.x = cmdT.angular.y = useHovering ? 0 : 1;
-        
         // Controller
-      
         switch (control_mode)
         {
             case JOYSTICK_CONTROL:
@@ -333,53 +375,13 @@ int main(int argc, char **argv)
                 global_roll = 0;
                 global_yaw = 0;
                 
+                vel_pub.publish(cmdT);
+                
                 break;
             }
             case TRACK_MARKER:
             {
                 std::cout << "Control mode: TRACK MARKER." << std::endl;
-
-                // store last error
-                last_poseError.x = poseError.x;
-                last_poseError.y = poseError.y;
-                last_poseError.z = poseError.z;
-                last_poseError.yaw = poseError.yaw;
-                
-                // new error
-                poseError.x = desiredPose.x - dronePose.x;
-                poseError.y = desiredPose.y - dronePose.y;
-                poseError.z = desiredPose.z - dronePose.z;
-                poseError.yaw = desiredPose.yaw - dronePose.yaw;
-                
-                
-                // PD controller params
-                double Kp = 0.5; 
-                double Kd = 0;
-                
-                // apply dead-zone
-                //poseError.z = (abs(poseError.z) < 0.02) ? 0 : poseError.z;
-                //poseError.x = (abs(poseError.x) < 0.02) ? 0 : poseError.x;
-                //poseError.y = (abs(poseError.y) < 0.02) ? 0 : poseError.y;
-                
-                // Prepare command (PD controller)
-                cmdT.angular.z = 0;
-                cmdT.linear.z = poseError.z * Kp + (poseError.z - last_poseError.z) * Kd;
-                cmdT.linear.x = (poseError.x) * Kp + (poseError.x - last_poseError.x) * Kd;
-                cmdT.linear.x = 0;
-                cmdT.linear.y = poseError.y * Kp + (poseError.y - last_poseError.y) * Kd;
-                //cmdT.linear.y = 0;
-                cmdT.angular.x = cmdT.angular.y = useHovering ? 0 : 1;
-                
-                // Clip command
-                double limit = 0.1;
-                cmdT.linear.z = (cmdT.linear.z > limit) ? limit : cmdT.linear.z;
-                cmdT.linear.z = (cmdT.linear.z < -limit) ? -limit : cmdT.linear.z;
-                cmdT.linear.x = (cmdT.linear.x > limit) ? limit : cmdT.linear.x;
-                cmdT.linear.x = (cmdT.linear.x < -limit) ? -limit : cmdT.linear.x;
-                cmdT.linear.y = (cmdT.linear.y > limit) ? limit : cmdT.linear.y;
-                cmdT.linear.y = (cmdT.linear.y < -limit) ? -limit : cmdT.linear.y;
-                
-                
                 break;
             }
             case TRACK_FACE:
@@ -391,50 +393,6 @@ int main(int argc, char **argv)
             case HOVER_POINT:
             {
                 std::cout << "Control mode: HOVER POINT." << std::endl;                 
-
-                // store last error
-                last_poseError.x = poseError.x;
-                last_poseError.y = poseError.y;
-                last_poseError.z = poseError.z;
-                last_poseError.yaw = poseError.yaw;
-                
-                // new error
-                poseError.x = desiredPose.x - dronePose.x;
-                poseError.y = desiredPose.y - dronePose.y;
-                poseError.z = desiredPose.z - dronePose.z;
-                poseError.yaw = desiredPose.yaw - dronePose.yaw;
-                
-                
-                // PD controller params
-                double Kp = 0.1; 
-                double Kd = 0;
-                
-                // apply dead-zone
-                //poseError.z = (abs(poseError.z) < 0.02) ? 0 : poseError.z;
-                //poseError.x = (abs(poseError.x) < 0.02) ? 0 : poseError.x;
-                //poseError.y = (abs(poseError.y) < 0.02) ? 0 : poseError.y;
-                
-                // Prepare command (PD controller)
-                cmdT.angular.z = 0;
-                cmdT.linear.z = poseError.z * Kp + (poseError.z - last_poseError.z) * Kd;
-                cmdT.linear.x = (poseError.x) * Kp + (poseError.x - last_poseError.x) * Kd;
-                //cmdT.linear.x /= 2;
-                cmdT.linear.y = poseError.y * Kp + (poseError.y - last_poseError.y) * Kd;
-                cmdT.angular.x = cmdT.angular.y = useHovering ? 0 : 1;
-                
-                // Clip command
-                double limit = 0.1;
-                cmdT.linear.z = (cmdT.linear.z > limit) ? limit : cmdT.linear.z;
-                cmdT.linear.z = (cmdT.linear.z < -limit) ? -limit : cmdT.linear.z;
-                cmdT.linear.x = (cmdT.linear.x > limit) ? limit : cmdT.linear.x;
-                cmdT.linear.x = (cmdT.linear.x < -limit) ? -limit : cmdT.linear.x;
-                cmdT.linear.y = (cmdT.linear.y > limit) ? limit : cmdT.linear.y;
-                cmdT.linear.y = (cmdT.linear.y < -limit) ? -limit : cmdT.linear.y;
-
-
-
-
-
                 break;
             }
             default:
@@ -445,23 +403,19 @@ int main(int argc, char **argv)
         }
         
         // Send command
-        vel_pub.publish(cmdT);
-
+//        vel_pub.publish(cmdT);
 
         // display info
         std::cout << "-------------------------------------" << std::endl;
-        std::cout << "Desired pose -> x: " << local_desiredPose.x << " y: " << local_desiredPose.y << " z: " << local_desiredPose.z << std::endl;
+        std::cout << "Desired pose -> x: " << local_desiredPose.x << " y: " << local_desiredPose.y << " z: " << local_desiredPose.z << " yaw: " << local_desiredPose.yaw << std::endl;
         std::cout << "Current pose -> x: " << dronePose.x << " y: " << dronePose.y << " z: " << dronePose.z << " yaw: " << dronePose.yaw << std::endl;
-        std::cout << "Error pose -> x: " << poseError.x << " y: " << poseError.y << " z: " << poseError.z << std::endl;
-        std::cout << "Command -> x: " << cmdT.linear.x << " y: " << cmdT.linear.y << " z: " << cmdT.linear.z << std::endl;
-
+        std::cout << "Error pose -> x: " << poseError.x << " y: " << poseError.y << " z: " << poseError.z << " yaw: " << poseError.yaw << std::endl;
+        std::cout << "Command -> x: " << cmdT.linear.x << " y: " << cmdT.linear.y << " z: " << cmdT.linear.z << " Rot z: " << cmdT.angular.z << std::endl;
 
         ros::spinOnce();
 
-        loop_rate.sleep();
-    
+        loop_rate.sleep();    
     }
-
 
   return 0;
 }
