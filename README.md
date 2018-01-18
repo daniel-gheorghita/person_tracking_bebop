@@ -19,7 +19,7 @@ ROS Packages used:
 
 bebop_autonomy - Bebop drone ROS messages
 
-bebop_converter - Bebop drone driver
+bebop_converter - Bebop drone communication driver
 
 ar_track_alvar - ROS Wrapper for Alvar marker tracker
 
