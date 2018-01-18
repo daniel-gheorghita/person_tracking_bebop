@@ -16,8 +16,13 @@ Current implemented functionalities:
 5. Face tracking: planned.
 
 ROS Packages used:
+
 bebop_autonomy - Bebop drone ROS messages
+
 bebop_converter - Bebop drone driver
+
 ar_track_alvar - ROS Wrapper for Alvar marker tracker
+
 gazr - ROS 3D head pose estimation 
+
 <i>...will add links to all...</i>
