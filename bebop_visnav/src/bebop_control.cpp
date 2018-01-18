@@ -11,6 +11,7 @@
 #include "geometry_msgs/Twist.h"
 #include "geometry_msgs/PoseWithCovariance.h"
 #include "tf/transform_datatypes.h"
+#include "tf/transform_listener.h"
 #include "ar_track_alvar_msgs/AlvarMarkers.h"
 #include "nav_msgs/Odometry.h"
 #include <Eigen/Core>
@@ -45,17 +46,17 @@ void chatterCallback(const std_msgs::String::ConstPtr& msg)
 void sendCmd_byError(poseStruct errorPose)
 {
     // PD controller params
-    double Kp = 0.4; 
-    double Kd = 0.2;
+    double Kp = 0.5; 
+    double Kd = 1.2;
     static poseStruct last_errorPose;
         
     // Prepare command (PD controller)
     cmdT.angular.z = Kp * errorPose.yaw + (errorPose.yaw - last_errorPose.yaw) * Kd;
     cmdT.linear.z = errorPose.z * Kp + (errorPose.z - last_errorPose.z) * Kd;
     //cmdT.linear.z = 0; // testing
-    cmdT.linear.x = (errorPose.x) * Kp / 2 + (errorPose.x - last_errorPose.x) * Kd;
+    cmdT.linear.x = (errorPose.x) * Kp / 2 + (errorPose.x - last_errorPose.x) * Kd * 1.5;
 //    cmdT.linear.x = 0; // testing
-    cmdT.linear.y = errorPose.y * Kp / 2 + (errorPose.y - last_errorPose.y) * Kd;
+    cmdT.linear.y = errorPose.y * Kp / 2  + (errorPose.y - last_errorPose.y) * Kd;
   //  cmdT.linear.y = 0; // testing
     //cmdT.linear.y = 0;
     cmdT.angular.x = cmdT.angular.y = useHovering ? 0 : 1;
@@ -210,7 +211,7 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
         for (int i = 0; i < req.markers.size(); i++) {
             int id = req.markers[i].id;
             
-            if (id > 8)    continue;
+            if (id != 3 && id != 4 )    continue;
             
             countMarkers++;
              x += req.markers[i].pose.pose.position.x;
