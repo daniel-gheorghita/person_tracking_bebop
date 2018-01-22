@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(bebop_visnav)
+project(person_tracking_bebop)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
@@ -8,8 +8,15 @@ project(bebop_visnav)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
+  ar_track_alvar
+  ardrone_autonomy
+  bebop_msgs
+  cv_bridge
+  geometry_msgs
+  message_generation
   roscpp
   rospy
+  sensor_msgs
   std_msgs
 )
 
@@ -200,3 +207,4 @@ include_directories(
 
 add_executable(bebop_control src/bebop_control.cpp)
 target_link_libraries(bebop_control ${catkin_LIBRARIES})
+add_dependencies(bebop_control bebop_control_generate_messages_cpp) 
