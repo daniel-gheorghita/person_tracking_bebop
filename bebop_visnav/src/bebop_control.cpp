@@ -10,10 +10,12 @@
 #include "math.h"
 #include "geometry_msgs/Twist.h"
 #include "geometry_msgs/PoseWithCovariance.h"
+#include "geometry_msgs/TransformStamped.h"
 #include "tf/transform_datatypes.h"
 #include "tf/transform_listener.h"
 #include "ar_track_alvar_msgs/AlvarMarkers.h"
 #include "nav_msgs/Odometry.h"
+#include "tf2_msgs/TFMessage.h"
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
@@ -281,6 +283,130 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
     }
     
 }
+
+void facePoseCallback(tf2_msgs::TFMessage face_tf)
+{
+ //   std::cout << "FACE CALLBAAAAACK!!" << std::endl;
+    if (control_mode != TRACK_FACE) return;
+    if (face_tf.transforms.empty()) return;
+ //   std::cout << "No. transforms: " << face_tf.transforms.size() << std::endl;
+    double yaw = 0, x = 0, y = 0, z = 0;
+    double qx, qy, qz, qw;
+
+    for (int i = 0; i < face_tf.transforms.size(); i++)
+    {
+        if (strcmp(face_tf.transforms[0].child_frame_id.c_str(), "face_0") != 0) continue;
+    
+ //   std::cout << "FACE DETECTED!" << std::endl;
+        x = face_tf.transforms[i].transform.translation.x;
+        y = face_tf.transforms[i].transform.translation.y;
+        z = face_tf.transforms[i].transform.translation.z;
+        //std::cout << "FACE-> " <<" X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
+        local_desiredPose.x = z;
+        local_desiredPose.y = -x;
+        local_desiredPose.z = -y;
+        
+        qx = face_tf.transforms[i].transform.rotation.x;
+        qy = face_tf.transforms[i].transform.rotation.y;
+        qz = face_tf.transforms[i].transform.rotation.z;
+        qw = face_tf.transforms[i].transform.rotation.w;
+        
+        // get yaw
+        
+        Eigen::Quaterniond q(qw,qx,qy,qz);
+        Eigen::Vector3d marker_zAxis(0,0,1), drone_xAxis(1,0,0);
+        Eigen::Matrix3d rotation; 
+        Eigen::Vector3d marker_zAxis_local_frame;
+        rotation = q.toRotationMatrix();
+        marker_zAxis_local_frame = rotation * marker_zAxis;
+        
+        marker_zAxis_local_frame[2] = 0;
+        double cosineValue;
+        double normValue = marker_zAxis_local_frame.norm();
+        cosineValue = marker_zAxis_local_frame.dot(drone_xAxis) / normValue;
+            
+        yaw = acos(cosineValue) * marker_zAxis_local_frame[0] * marker_zAxis_local_frame[1];
+        
+        local_desiredPose.yaw = yaw;
+        
+
+    }
+    //TODO
+    static int emptyFrames; // if last 10 (?) frames are empty, something is wrong: LAND or HOVER
+    /*
+    if (!face_tf.markers.empty())
+    {
+        emptyFrames = 0;
+        
+             x += req.markers[i].pose.pose.position.x;
+             y += req.markers[i].pose.pose.position.y;
+             z += req.markers[i].pose.pose.position.z;
+            double qx = req.markers[i].pose.pose.orientation.x;
+            double qy = req.markers[i].pose.pose.orientation.y;
+            double qz = req.markers[i].pose.pose.orientation.z;
+            double qw = req.markers[i].pose.pose.orientation.w;
+            
+            
+        std::cout << "FACE DETECTED!!!" << std::endl;
+        std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
+        
+        // TODO, get orientation information
+            Eigen::Quaterniond q(qw,qx,qy,qz);
+            Eigen::Vector3d marker_zAxis(0,0,1), drone_xAxis(1,0,0);
+            Eigen::Matrix3d rotation; 
+            Eigen::Vector3d marker_zAxis_local_frame;
+            rotation = q.toRotationMatrix();
+            marker_zAxis_local_frame = rotation * marker_zAxis;
+        
+            marker_zAxis_local_frame[2] = 0;
+            double cosineValue;
+            double normValue = marker_zAxis_local_frame.norm();
+            cosineValue = marker_zAxis_local_frame.dot(drone_xAxis) / normValue;
+            
+            yaw += acos(cosineValue) * marker_zAxis_local_frame[0] * marker_zAxis_local_frame[1];
+            
+        }
+        
+             // store last desired pose
+            last_desiredPose.x = desiredPose.x; 
+            last_desiredPose.y = desiredPose.y;
+            last_desiredPose.z = desiredPose.z;
+       
+            // update desired pose
+            desiredPose.yaw = yaw / countMarkers ;
+            desiredPose.x = x / countMarkers - 1;
+            desiredPose.y = y / countMarkers;
+            desiredPose.z = z / countMarkers;
+
+
+            
+            // discard large variations
+            if (abs(desiredPose.x - last_desiredPose.x) > 2 || abs(desiredPose.y - last_desiredPose.y) > 2 || abs(desiredPose.z - last_desiredPose.z) > 2)
+            {
+                desiredPose.x = last_desiredPose.x; 
+                desiredPose.y = last_desiredPose.y;
+                desiredPose.z = last_desiredPose.z;
+            } 
+            // assign yaw error
+            //poseError.yaw = yaw;
+            //poseError.valid = 1;
+            local_desiredPose = desiredPose;
+            
+           sendCmd_byError(desiredPose); 
+    }
+    else
+    {
+        emptyFrames++;
+        if (emptyFrames > 10)
+        {
+            // TODO: what happens after we mark the detection as faulty?
+            poseError.valid = 0;
+        }
+    }
+    */
+    
+}
+
 int main(int argc, char **argv)
 {
     // init controller
@@ -341,6 +467,7 @@ int main(int argc, char **argv)
     ros::Subscriber odom_sub = n.subscribe("ardrone/odom", 1000, odomCallback);
     ros::Subscriber joy_sub = n.subscribe("joy", 1000, joystickCallback);
     ros::Subscriber alvar_sub = n.subscribe("ar_pose_marker", 1000, markerPoseCallback);
+    ros::Subscriber face_sub = n.subscribe("tf",1000, facePoseCallback);
 
     vel_pub = n.advertise<geometry_msgs::Twist>(n.resolveName("cmd_vel"),1);
     takeoff_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/takeoff"),1);
