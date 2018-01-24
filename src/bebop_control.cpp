@@ -458,7 +458,7 @@ int main(int argc, char **argv)
     }
     
     // init node
-    ros::init(argc, argv, "visnav_controller");
+    ros::init(argc, argv, "bebop_controller");
     ros::NodeHandle n;
 
     ros::Publisher chatter_pub = n.advertise<std_msgs::String>("chatter", 1000);
