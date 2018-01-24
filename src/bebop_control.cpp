@@ -40,11 +40,6 @@ struct poseStruct {
     int valid; // if error information is worth considering
 } poseError, d_poseError, last_poseError, i_poseError, dronePose, desiredPose, last_desiredPose, local_desiredPose;
 
-void chatterCallback(const std_msgs::String::ConstPtr& msg)
-{
-  //ROS_INFO("I heard: [%s]", msg->data.c_str());
-}
-
 void sendCmd_byError(poseStruct errorPose)
 {
     // PD controller params
@@ -76,11 +71,6 @@ void sendCmd_byError(poseStruct errorPose)
                 
     vel_pub.publish(cmdT);
     last_errorPose = errorPose;
-//                
-//    cmdT.linear.z = 0; // clearing
-//    cmdT.linear.x = 0; // clearing
-//    cmdT.linear.y = 0; // clearing
-//    cmdT.angular.z = 0; // clearing
 }
 
 void sendCmd(poseStruct desiredPose)
@@ -126,10 +116,10 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
 {
     double roll, pitch, yaw, gaz;
       
-    for (int i = 0; i < 4; i++)
-      //  std::cout << "Joystick Axes " << i << ": " << joy_msg->axes[i] << std::endl;
-    for (int i = 0; i < 17; i++)
-      //  std::cout << "Joystick Buttons " << i << ": " << joy_msg->buttons[i] << std::endl;
+    //for (int i = 0; i < 4; i++)
+    //    std::cout << "Joystick Axes " << i << ": " << joy_msg->axes[i] << std::endl;
+    //for (int i = 0; i < 17; i++)
+    //    std::cout << "Joystick Buttons " << i << ": " << joy_msg->buttons[i] << std::endl;
     
     yaw = -joy_msg->axes[2];
     gaz = joy_msg->axes[3];
@@ -164,7 +154,6 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
         toggleState_pub.publish(std_msgs::Empty());
         std::cout << "Joystick Callback: RESET." << std::endl;
     }
-    //std::cout << "-------------------------------------" << std::endl;
 }
 
 void odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
@@ -207,28 +196,24 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
     {
         emptyFrames = 0;
         
-        
-        
-        
-        for (int i = 0; i < req.markers.size(); i++) {
+        for (int i = 0; i < req.markers.size(); i++)
+        {
             int id = req.markers[i].id;
             
-            if (id != 3 && id != 4 )    continue;
+            if (id != 3 && id != 4 ) continue;
             
             countMarkers++;
-             x += req.markers[i].pose.pose.position.x;
-             y += req.markers[i].pose.pose.position.y;
-             z += req.markers[i].pose.pose.position.z;
+            x += req.markers[i].pose.pose.position.x;
+            y += req.markers[i].pose.pose.position.y;
+            z += req.markers[i].pose.pose.position.z;
             double qx = req.markers[i].pose.pose.orientation.x;
             double qy = req.markers[i].pose.pose.orientation.y;
             double qz = req.markers[i].pose.pose.orientation.z;
             double qw = req.markers[i].pose.pose.orientation.w;
             
-            
-            //std::cout << "GOT MESSAGE FROM ALVAR!!!" << std::endl;
-        std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
+            std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
         
-        // TODO, get orientation information
+            // TODO, get orientation information
             Eigen::Quaterniond q(qw,qx,qy,qz);
             Eigen::Vector3d marker_zAxis(0,0,1), drone_xAxis(1,0,0);
             Eigen::Matrix3d rotation; 
@@ -241,36 +226,33 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
             double normValue = marker_zAxis_local_frame.norm();
             cosineValue = marker_zAxis_local_frame.dot(drone_xAxis) / normValue;
             
-            yaw += acos(cosineValue) * marker_zAxis_local_frame[0] * marker_zAxis_local_frame[1];
-            
+            yaw += acos(cosineValue) * marker_zAxis_local_frame[0] * marker_zAxis_local_frame[1];            
         }
         
-             // store last desired pose
-            last_desiredPose.x = desiredPose.x; 
-            last_desiredPose.y = desiredPose.y;
-            last_desiredPose.z = desiredPose.z;
+        // store last desired pose
+        last_desiredPose.x = desiredPose.x;
+        last_desiredPose.y = desiredPose.y;
+        last_desiredPose.z = desiredPose.z;
        
-            // update desired pose
-            desiredPose.yaw = yaw / countMarkers ;
-            desiredPose.x = x / countMarkers - 1;
-            desiredPose.y = y / countMarkers;
-            desiredPose.z = z / countMarkers;
+        // update desired pose
+        desiredPose.yaw = yaw / countMarkers ;
+        desiredPose.x = x / countMarkers - 1;
+        desiredPose.y = y / countMarkers;
+        desiredPose.z = z / countMarkers;
 
+        // discard large variations
+        if (abs(desiredPose.x - last_desiredPose.x) > 2 || abs(desiredPose.y - last_desiredPose.y) > 2 || abs(desiredPose.z - last_desiredPose.z) > 2)
+        {
+            desiredPose.x = last_desiredPose.x;
+            desiredPose.y = last_desiredPose.y;
+            desiredPose.z = last_desiredPose.z;
+        }
+        // assign yaw error
+        //poseError.yaw = yaw;
+        //poseError.valid = 1;
+        local_desiredPose = desiredPose;
 
-            
-            // discard large variations
-            if (abs(desiredPose.x - last_desiredPose.x) > 2 || abs(desiredPose.y - last_desiredPose.y) > 2 || abs(desiredPose.z - last_desiredPose.z) > 2)
-            {
-                desiredPose.x = last_desiredPose.x; 
-                desiredPose.y = last_desiredPose.y;
-                desiredPose.z = last_desiredPose.z;
-            } 
-            // assign yaw error
-            //poseError.yaw = yaw;
-            //poseError.valid = 1;
-            local_desiredPose = desiredPose;
-            
-           sendCmd_byError(desiredPose); 
+        sendCmd_byError(desiredPose);
     }
     else
     {
@@ -281,23 +263,22 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
             poseError.valid = 0;
         }
     }
-    
 }
 
 void facePoseCallback(tf2_msgs::TFMessage face_tf)
 {
- //   std::cout << "FACE CALLBAAAAACK!!" << std::endl;
+    //std::cout << "FACE CALLBAAAAACK!!" << std::endl;
     if (control_mode != TRACK_FACE) return;
     if (face_tf.transforms.empty()) return;
- //   std::cout << "No. transforms: " << face_tf.transforms.size() << std::endl;
+    //std::cout << "No. transforms: " << face_tf.transforms.size() << std::endl;
     double yaw = 0, x = 0, y = 0, z = 0;
     double qx, qy, qz, qw;
 
     for (int i = 0; i < face_tf.transforms.size(); i++)
     {
         if (strcmp(face_tf.transforms[0].child_frame_id.c_str(), "face_0") != 0) continue;
-    
- //   std::cout << "FACE DETECTED!" << std::endl;
+
+        //std::cout << "FACE DETECTED!" << std::endl;
         x = face_tf.transforms[i].transform.translation.x;
         y = face_tf.transforms[i].transform.translation.y;
         z = face_tf.transforms[i].transform.translation.z;
@@ -312,10 +293,9 @@ void facePoseCallback(tf2_msgs::TFMessage face_tf)
         qw = face_tf.transforms[i].transform.rotation.w;
         
         // get yaw
-        
         Eigen::Quaterniond q(qw,qx,qy,qz);
         Eigen::Vector3d marker_zAxis(0,0,1), drone_xAxis(1,0,0);
-        Eigen::Matrix3d rotation; 
+        Eigen::Matrix3d rotation;
         Eigen::Vector3d marker_zAxis_local_frame;
         rotation = q.toRotationMatrix();
         marker_zAxis_local_frame = rotation * marker_zAxis;
@@ -324,87 +304,14 @@ void facePoseCallback(tf2_msgs::TFMessage face_tf)
         double cosineValue;
         double normValue = marker_zAxis_local_frame.norm();
         cosineValue = marker_zAxis_local_frame.dot(drone_xAxis) / normValue;
-            
+
         yaw = acos(cosineValue) * marker_zAxis_local_frame[0] * marker_zAxis_local_frame[1];
         
         local_desiredPose.yaw = yaw;
-        
-
     }
+
     //TODO
     static int emptyFrames; // if last 10 (?) frames are empty, something is wrong: LAND or HOVER
-    /*
-    if (!face_tf.markers.empty())
-    {
-        emptyFrames = 0;
-        
-             x += req.markers[i].pose.pose.position.x;
-             y += req.markers[i].pose.pose.position.y;
-             z += req.markers[i].pose.pose.position.z;
-            double qx = req.markers[i].pose.pose.orientation.x;
-            double qy = req.markers[i].pose.pose.orientation.y;
-            double qz = req.markers[i].pose.pose.orientation.z;
-            double qw = req.markers[i].pose.pose.orientation.w;
-            
-            
-        std::cout << "FACE DETECTED!!!" << std::endl;
-        std::cout << "ID: " << id <<"; X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
-        
-        // TODO, get orientation information
-            Eigen::Quaterniond q(qw,qx,qy,qz);
-            Eigen::Vector3d marker_zAxis(0,0,1), drone_xAxis(1,0,0);
-            Eigen::Matrix3d rotation; 
-            Eigen::Vector3d marker_zAxis_local_frame;
-            rotation = q.toRotationMatrix();
-            marker_zAxis_local_frame = rotation * marker_zAxis;
-        
-            marker_zAxis_local_frame[2] = 0;
-            double cosineValue;
-            double normValue = marker_zAxis_local_frame.norm();
-            cosineValue = marker_zAxis_local_frame.dot(drone_xAxis) / normValue;
-            
-            yaw += acos(cosineValue) * marker_zAxis_local_frame[0] * marker_zAxis_local_frame[1];
-            
-        }
-        
-             // store last desired pose
-            last_desiredPose.x = desiredPose.x; 
-            last_desiredPose.y = desiredPose.y;
-            last_desiredPose.z = desiredPose.z;
-       
-            // update desired pose
-            desiredPose.yaw = yaw / countMarkers ;
-            desiredPose.x = x / countMarkers - 1;
-            desiredPose.y = y / countMarkers;
-            desiredPose.z = z / countMarkers;
-
-
-            
-            // discard large variations
-            if (abs(desiredPose.x - last_desiredPose.x) > 2 || abs(desiredPose.y - last_desiredPose.y) > 2 || abs(desiredPose.z - last_desiredPose.z) > 2)
-            {
-                desiredPose.x = last_desiredPose.x; 
-                desiredPose.y = last_desiredPose.y;
-                desiredPose.z = last_desiredPose.z;
-            } 
-            // assign yaw error
-            //poseError.yaw = yaw;
-            //poseError.valid = 1;
-            local_desiredPose = desiredPose;
-            
-           sendCmd_byError(desiredPose); 
-    }
-    else
-    {
-        emptyFrames++;
-        if (emptyFrames > 10)
-        {
-            // TODO: what happens after we mark the detection as faulty?
-            poseError.valid = 0;
-        }
-    }
-    */
-    
 }
 
 int main(int argc, char **argv)
@@ -412,42 +319,38 @@ int main(int argc, char **argv)
     // init controller
     if (argc == 2)
     {
-
         if (strcmp(argv[1], "joy") == 0)
         {
             control_mode = JOYSTICK_CONTROL;
             std::cout << "Control mode: Joystick." << std::endl;
         }
-        else
-            if (strcmp(argv[1], "marker") == 0)
-            {
-                control_mode = TRACK_MARKER;
-                std::cout << "Control mode: Marker." << std::endl;
-            }
-            else
-                if (strcmp(argv[1], "hover") == 0)
-                {
-                    control_mode = HOVER_POINT;
+        else if (strcmp(argv[1], "marker") == 0)
+        {
+            control_mode = TRACK_MARKER;
+            std::cout << "Control mode: Marker." << std::endl;
+        }
+        else if (strcmp(argv[1], "hover") == 0)
+        {
+            control_mode = HOVER_POINT;
                     
-                    // Dummy point for testing
-                    desiredPose.x = 1;
-                    desiredPose.y = 1;
-                    desiredPose.z = 1;
-                    std::cout << "Control mode: Hover." << std::endl;
-                }
-                else
-                    if (strcmp(argv[1], "face") == 0)
-                    {
-                        control_mode = TRACK_FACE;
-                        std::cout << "Control mode: Face tracker." << std::endl;
-                    }
-                    else
-                    {
-                        control_mode = JOYSTICK_CONTROL;
-                        std::cout << "No valid control input. Joystick selected by default. " << std::endl;
-                        std::cout << "You can restart the node in the following modes: " << std::endl;
-                        std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
-                    }
+            // Dummy point for testing
+            desiredPose.x = 1;
+            desiredPose.y = 1;
+            desiredPose.z = 1;
+            std::cout << "Control mode: Hover." << std::endl;
+        }
+        else if (strcmp(argv[1], "face") == 0)
+        {
+            control_mode = TRACK_FACE;
+            std::cout << "Control mode: Face tracker." << std::endl;
+        }
+        else
+        {
+            control_mode = JOYSTICK_CONTROL;
+            std::cout << "No valid control input. Joystick selected by default. " << std::endl;
+            std::cout << "You can restart the node in the following modes: " << std::endl;
+            std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
+        }
     }
     else
     {
@@ -463,7 +366,6 @@ int main(int argc, char **argv)
 
     ros::Publisher chatter_pub = n.advertise<std_msgs::String>("chatter", 1000);
 
-    ros::Subscriber sub = n.subscribe("chatter", 1000, chatterCallback);
     ros::Subscriber odom_sub = n.subscribe("ardrone/odom", 1000, odomCallback);
     ros::Subscriber joy_sub = n.subscribe("joy", 1000, joystickCallback);
     ros::Subscriber alvar_sub = n.subscribe("ar_pose_marker", 1000, markerPoseCallback);
@@ -529,9 +431,6 @@ int main(int argc, char **argv)
                 break;
             }
         }
-        
-        // Send command
-//        vel_pub.publish(cmdT);
 
         // display info
         std::cout << "-------------------------------------" << std::endl;
@@ -545,5 +444,5 @@ int main(int argc, char **argv)
         loop_rate.sleep();    
     }
 
-  return 0;
+    return 0;
 }
