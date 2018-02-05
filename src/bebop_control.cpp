@@ -40,6 +40,7 @@ struct poseStruct {
     double yaw;
     int valid; // if error information is worth considering
 } poseError, d_poseError, last_poseError, i_poseError, dronePose, desiredPose, last_desiredPose, local_desiredPose;
+struct poseStruct integrated_facepose;
 
 void sendCmd_byError(poseStruct errorPose)
 {
@@ -117,11 +118,11 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
 {
     double roll, pitch, yaw, gaz;
       
-    //for (int i = 0; i < 4; i++)
-    //    std::cout << "Joystick Axes " << i << ": " << joy_msg->axes[i] << std::endl;
-    //for (int i = 0; i < 17; i++)
-    //    std::cout << "Joystick Buttons " << i << ": " << joy_msg->buttons[i] << std::endl;
-    
+//    for (int i = 0; i < 4; i++)
+//        std::cout << "Joystick Axes " << i << ": " << joy_msg->axes[i] << std::endl;
+//    for (int i = 0; i < 17; i++)
+//        std::cout << "Joystick Buttons " << i << ": " << joy_msg->buttons[i] << std::endl;
+
     yaw = -joy_msg->axes[2];
     gaz = joy_msg->axes[3];
     roll = -joy_msg->axes[0];
@@ -137,7 +138,7 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
         global_gaz = gaz;
     }
     
-    if (joy_msg->buttons[4] > 0.5) // take off button
+    if (joy_msg->buttons[10] > 0.5) // take off button
     {
         // send take off message
         takeoff_pub.publish(std_msgs::Empty());
@@ -150,14 +151,14 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
         std::cout << "Joystick Callback: LAND." << std::endl;
     }
     
-    if (joy_msg->buttons[5] == 1) // reset button
+    if (joy_msg->buttons[11] == 1) // reset button
     {
         // send take off message
         toggleState_pub.publish(std_msgs::Empty());
         std::cout << "Joystick Callback: RESET." << std::endl;
     }
 
-    if (joy_msg->buttons[6] == 1) // TODO: need to figure X button out
+    if (joy_msg->buttons[14] == 1) // TODO: need to figure X button out
     {
         control_mode = original_control_mode;
     }
@@ -291,7 +292,7 @@ void facePoseCallback(tf2_msgs::TFMessage face_tf)
         y = face_tf.transforms[i].transform.translation.y;
         z = face_tf.transforms[i].transform.translation.z;
         //std::cout << "FACE-> " <<" X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
-        local_desiredPose.x = z - 1; //TODO : make this sure
+        local_desiredPose.x = z - 1.2; //TODO : make this sure
         local_desiredPose.y = -x;
         local_desiredPose.z = -y;
         
@@ -306,7 +307,7 @@ void facePoseCallback(tf2_msgs::TFMessage face_tf)
         Eigen::Matrix3d rotation;
         Eigen::Vector3d marker_zAxis_local_frame;
         rotation = q.toRotationMatrix();
-        marker_zAxis_local_frame = rotation * marker_zAxis;
+        marker_zAxis_local_frame = rotation.transpose() * marker_zAxis;
         
         marker_zAxis_local_frame[2] = 0;
         double cosineValue;
@@ -315,9 +316,15 @@ void facePoseCallback(tf2_msgs::TFMessage face_tf)
 
         yaw = acos(cosineValue) * marker_zAxis_local_frame[0] * marker_zAxis_local_frame[1];
         
-        local_desiredPose.yaw = yaw;
-
+        local_desiredPose.yaw = -yaw;
 //        sendCmd_byError(local_desiredPose);
+
+        integrated_facepose.x = 0.9*integrated_facepose.x + 0.1 * local_desiredPose.x;
+        integrated_facepose.y = 0.9*integrated_facepose.y + 0.1 * local_desiredPose.y;
+        integrated_facepose.z = 0.9*integrated_facepose.z + 0.1 * local_desiredPose.z;
+        integrated_facepose.yaw = 0.9*integrated_facepose.yaw + 0.1 * local_desiredPose.yaw;
+        std::cout << "Integrated pose -> x: " << integrated_facepose.x << " y: " << integrated_facepose.y << " z: " << integrated_facepose.z << std::endl;
+        sendCmd_byError(integrated_facepose);
     }
 
     //TODO
