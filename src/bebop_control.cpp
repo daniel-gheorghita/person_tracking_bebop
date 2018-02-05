@@ -24,6 +24,7 @@ ros::Publisher  vel_pub;
 
 geometry_msgs::Twist cmdT;
 int control_mode = 0; 
+int original_control_mode = 0;
 int useHovering = 1;
 double yawMean, yawSum;
 int yawCount = 30;
@@ -127,6 +128,7 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
     pitch = -joy_msg->axes[1];
     if (abs(yaw) > 0.1 || abs(gaz) > 0.1 || abs(roll) > 0.1 || abs(pitch) > 0.1)
     {
+        original_control_mode = control_mode;
         control_mode = JOYSTICK_CONTROL;
         std::cout << "Joystick Callback: MANUAL." << std::endl;
         global_roll = roll;
@@ -135,7 +137,7 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
         global_gaz = gaz;
     }
     
-    if (joy_msg->buttons[4] > 0.5)
+    if (joy_msg->buttons[4] > 0.5) // take off button
     {
         // send take off message
         takeoff_pub.publish(std_msgs::Empty());
@@ -148,11 +150,16 @@ void joystickCallback(const sensor_msgs::JoyConstPtr joy_msg)
         std::cout << "Joystick Callback: LAND." << std::endl;
     }
     
-    if (joy_msg->buttons[5] == 1)
+    if (joy_msg->buttons[5] == 1) // reset button
     {
         // send take off message
         toggleState_pub.publish(std_msgs::Empty());
         std::cout << "Joystick Callback: RESET." << std::endl;
+    }
+
+    if (joy_msg->buttons[6] == 1) // TODO: need to figure X button out
+    {
+        control_mode = original_control_mode;
     }
 }
 
@@ -189,7 +196,7 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
     if (control_mode != TRACK_MARKER) return;
     double yaw = 0, x = 0, y = 0, z = 0;
     int countMarkers = 0;
-    //TODO
+
     static int emptyFrames; // if last 10 (?) frames are empty, something is wrong: LAND or HOVER
     
     if (!req.markers.empty())
@@ -218,10 +225,11 @@ void markerPoseCallback(ar_track_alvar_msgs::AlvarMarkers req)
             Eigen::Vector3d marker_zAxis(0,0,1), drone_xAxis(1,0,0);
             Eigen::Matrix3d rotation; 
             Eigen::Vector3d marker_zAxis_local_frame;
+
             rotation = q.toRotationMatrix();
             marker_zAxis_local_frame = rotation * marker_zAxis;
-        
             marker_zAxis_local_frame[2] = 0;
+
             double cosineValue;
             double normValue = marker_zAxis_local_frame.norm();
             cosineValue = marker_zAxis_local_frame.dot(drone_xAxis) / normValue;
@@ -276,14 +284,14 @@ void facePoseCallback(tf2_msgs::TFMessage face_tf)
 
     for (int i = 0; i < face_tf.transforms.size(); i++)
     {
-        if (strcmp(face_tf.transforms[0].child_frame_id.c_str(), "face_0") != 0) continue;
+        if (strcmp(face_tf.transforms[i].child_frame_id.c_str(), "face_0") != 0) continue;
 
         //std::cout << "FACE DETECTED!" << std::endl;
         x = face_tf.transforms[i].transform.translation.x;
         y = face_tf.transforms[i].transform.translation.y;
         z = face_tf.transforms[i].transform.translation.z;
         //std::cout << "FACE-> " <<" X: " << x << "; Y: " << y << "; Z: " << z << std::endl << std::endl;
-        local_desiredPose.x = z;
+        local_desiredPose.x = z - 1; //TODO : make this sure
         local_desiredPose.y = -x;
         local_desiredPose.z = -y;
         
@@ -308,6 +316,8 @@ void facePoseCallback(tf2_msgs::TFMessage face_tf)
         yaw = acos(cosineValue) * marker_zAxis_local_frame[0] * marker_zAxis_local_frame[1];
         
         local_desiredPose.yaw = yaw;
+
+//        sendCmd_byError(local_desiredPose);
     }
 
     //TODO
@@ -332,7 +342,7 @@ int main(int argc, char **argv)
         else if (strcmp(argv[1], "hover") == 0)
         {
             control_mode = HOVER_POINT;
-                    
+
             // Dummy point for testing
             desiredPose.x = 1;
             desiredPose.y = 1;
@@ -347,6 +357,7 @@ int main(int argc, char **argv)
         else
         {
             control_mode = JOYSTICK_CONTROL;
+
             std::cout << "No valid control input. Joystick selected by default. " << std::endl;
             std::cout << "You can restart the node in the following modes: " << std::endl;
             std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
@@ -355,28 +366,28 @@ int main(int argc, char **argv)
     else
     {
         control_mode = JOYSTICK_CONTROL;
+
         std::cout << "No selected control input. Joystick selected by default." << std::endl;
         std::cout << "You can restart the node in the following modes: " << std::endl;
         std::cout << "1. Joystick: joy;\n2. Marker tracking: marker;\n3. Hover: hover;\n4. Face tracking: face. " << std::endl;
     }
-    
+
     // init node
     ros::init(argc, argv, "bebop_controller");
     ros::NodeHandle n;
 
-    ros::Publisher chatter_pub = n.advertise<std_msgs::String>("chatter", 1000);
-
-    ros::Subscriber odom_sub = n.subscribe("ardrone/odom", 1000, odomCallback);
-    ros::Subscriber joy_sub = n.subscribe("joy", 1000, joystickCallback);
-    ros::Subscriber alvar_sub = n.subscribe("ar_pose_marker", 1000, markerPoseCallback);
-    ros::Subscriber face_sub = n.subscribe("tf",1000, facePoseCallback);
-
     vel_pub = n.advertise<geometry_msgs::Twist>(n.resolveName("cmd_vel"),1);
     takeoff_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/takeoff"),1);
-    land_pub    = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/land"),1);
+    land_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/land"),1);
     toggleState_pub = n.advertise<std_msgs::Empty>(n.resolveName("ardrone/reset"),1);
 
-    
+    ros::Subscriber joy_sub, alvar_sub, odom_sub, face_sub;
+
+    odom_sub = n.subscribe("ardrone/odom", 1000, odomCallback);
+    alvar_sub = n.subscribe("ar_pose_marker", 1000, markerPoseCallback);
+    joy_sub = n.subscribe("joy", 1000, joystickCallback);
+    face_sub = n.subscribe("tf",1000, facePoseCallback);
+
     ros::Rate loop_rate(10);
         
     // run node - send control commands
@@ -417,7 +428,6 @@ int main(int argc, char **argv)
             case TRACK_FACE:
             {
                 std::cout << "Control mode: TRACK FACE." << std::endl;
-
                 break;
             }
             case HOVER_POINT:
